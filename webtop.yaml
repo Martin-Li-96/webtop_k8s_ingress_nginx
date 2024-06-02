@@ -1,0 +1,117 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webtop
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: webtop-opt
+  labels:
+    name: webtop-opt
+  namespace: webtop
+spec:
+  nfs:
+    path: /mnt/opt
+    server: 192.168.0.20
+  accessModes: ["ReadOnlyMany"]
+  capacity:
+    storage: 1000Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: webtop-opt
+  namespace: webtop
+spec:
+  accessModes: ["ReadOnlyMany"]      #匹配PV的accessModes要包含ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi    
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webtop-test1  # deployment控制器名称
+  namespace: webtop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webtop-test1 
+  template:
+    metadata:
+      labels:
+        app: webtop-test1 
+    spec:
+      nodeName: k8s-node1
+      volumes:
+        - name: webtop-opt
+          persistentVolumeClaim:
+            claimName: webtop-opt
+      containers:
+        - name: webtop
+          image: m686li/webtop:debian-kde-base
+          env: 
+          - name: CUSTOM_USER
+            value: "test"
+          - name: PASSWORD
+            value: "Qwer1234!"
+          - name: SUBFOLDER
+            value: "/test/"
+          ports:
+            - containerPort: 3000
+              name: nginx
+            - containerPort: 6901
+              name: websock
+          volumeMounts:
+            - name: webtop-opt
+              mountPath: /opt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtop-test1   
+  namespace: webtop
+spec:
+  ports:
+    - name: port1
+      port: 3000
+      protocol: TCP
+      targetPort: 3000
+    - name: port2
+      port: 6901
+      protocol: TCP
+      targetPort: 6901
+  selector:
+    app: webtop-test1
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: webtop-test1
+  namespace: webtop
+spec:
+  rules:
+  - host: vip.k8s.io
+    http:
+      paths:
+      - backend:
+          service:
+            name: webtop-test1
+            port:
+              number: 3000
+        path: /test/
+        pathType: ImplementationSpecific
+  - host: vip.k8s.io
+    http:
+      paths:
+      - backend:
+          service:
+            name: webtop-test1
+            port:
+              number: 6901
+        path: /test/websockify
+        pathType: ImplementationSpecific
+  ingressClassName: nginx
